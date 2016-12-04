@@ -1,0 +1,6 @@
+blinker==1.4
+EasySettings==2.0.4
+python-mpd2==0.5.5
+RPi.GPIO==0.6.3
+six==1.10.0
+transitions==0.4.2
