@@ -8,16 +8,19 @@ import RPi.GPIO as GPIO
 
 from easysettings import EasySettings
 
+import datetime # für Alarm Class
+import locale
+
 import configparser
 import io
 import os
+from signal import alarm
 
 #### CONSTANTS ####
 
 CONF_FILE = "/etc/lichtwecker/lichtwecker.conf"
 
-debug = False
-
+debug = True
 
 #### HELPER CLASSES ####
 
@@ -67,7 +70,7 @@ class Buttons(object):
             self.okbutton,
             ]
         
-        print ("Configged buttons: {}".format(self.buttons))
+        if (debug): print ("Configged buttons: {}".format(self.buttons))
         
         # register getting informed on button down events
         self.register_button_handlers()
@@ -103,7 +106,7 @@ class component_done_event(Event):
     
 class keypress(Event):
     """ 
-    sent by Root Component to active Child, contains the pressed key.
+    sent by Root Component to activate a Child, contains the pressed key.
     """
 
 #### CIRCUITS COMPONENTS ####    
@@ -226,6 +229,7 @@ class SetAlarm(BaseLWComponent):
         self.items_pointer = 0
         self.values = self.get_saved_settings()
         self.display_entry()
+        self.music = self.lw.audio.get_titles_info()
         
     def start_timer(self):
         self.timer = Timer(1, Event.create("blink_alarm_line"), persist=True).register(self)
@@ -240,7 +244,8 @@ class SetAlarm(BaseLWComponent):
             self.lw.lcd.lcd_string(current_item["possible_values"][self.values[self.items_pointer]]["displayname"], self.lw.lcd.LCD_LINE_2)
         elif(self.items_pointer == 4):
             # special case music
-            pass 
+            music_title = self.music[self.values[self.items_pointer]]["title"]
+            self.lw.lcd.lcd_string(music_title, self.lw.lcd.LCD_LINE_2) 
         elif("formatstring" in current_item):
             self.lw.lcd.lcd_string(current_item["formatstring"].format(self.values[self.items_pointer]), self.lw.lcd.LCD_LINE_2)
         else:
@@ -267,6 +272,12 @@ class SetAlarm(BaseLWComponent):
                 if (self.values[self.items_pointer] >= len(current_item["possible_values"])):
                     self.values[self.items_pointer] = 0 
 
+            # music
+            if (self.items_pointer == 4):
+                self.values[self.items_pointer] += 1
+                if (self.values[self.items_pointer] >= len(self.music)):
+                    self.values[self.items_pointer] = 0
+
             self.display_entry()
 
         if (key == self.lw.buttons.downbutton):
@@ -281,6 +292,12 @@ class SetAlarm(BaseLWComponent):
                 self.values[self.items_pointer] -= 1
                 if (self.values[self.items_pointer] < 0):
                     self.values[self.items_pointer] = len(current_item["possible_values"]) - 1
+
+            # music
+            if (self.items_pointer == 4):
+                self.values[self.items_pointer] -= 1
+                if (self.values[self.items_pointer] < 0):
+                    self.values[self.items_pointer] = len(self.music) - 1
 
             self.display_entry()
 
@@ -310,7 +327,7 @@ class SetAlarm(BaseLWComponent):
             value = current_item["possible_values"][self.values[self.items_pointer]]["value"]
         else:
             value = self.values[self.items_pointer] 
-        print ("Saving key: {0} value: {1}".format(self.alarm_items[self.items_pointer]["store_as"].format(self.alarm_num), value))        
+        if (debug): print ("Saving key: {0} value: {1}".format(self.alarm_items[self.items_pointer]["store_as"].format(self.alarm_num), value))        
         self.lw.settings.setsave(self.alarm_items[self.items_pointer]["store_as"].format(self.alarm_num), value)
 
     def activate_alarm(self):
@@ -328,27 +345,27 @@ class SetAlarm(BaseLWComponent):
         
         values = [0] * len(self.alarm_items)
         
-        print ("Settings for alarm {0:d} before readout: {1}".format(self.alarm_num, values))
+        if (debug): print ("Settings for alarm {0:d} before readout: {1}".format(self.alarm_num, values))
         
         for item_idx, item in enumerate(self.alarm_items):
             setting_key = item["store_as"].format(self.alarm_num)
-            print ("Setting for item {0:s}: {1:s}".format(item["line1"],setting_key))
+            if (debug): print ("Setting for item {0:s}: {1:s}".format(item["line1"],setting_key))
             if (self.lw.settings.has_option(setting_key)):
                 # only read in value, if it is stored in settings
                 intermediate = self.lw.settings.get(setting_key)
                 if (self.is_lookup_type(item)):
-                    print ("item {0:s}: is lookup type".format(item["line1"]))
+                    if (debug): print ("item {0:s}: is lookup type".format(item["line1"]))
                     possible_values = item["possible_values"]
                     for lookup_index, value in enumerate(possible_values):
                         if (value["value"] == intermediate):
                             values[item_idx] = lookup_index
-                            print ("Value retrieved: {}".format(lookup_index))
+                            if (debug): print ("Value retrieved: {}".format(lookup_index))
                 else:
                     values[item_idx] = intermediate
-                    print ("Value retrieved: {}".format(intermediate)) 
+                    if (debug): print ("Value retrieved: {}".format(intermediate)) 
 
 
-        print ("Settings for alarm {0:d}: {1}".format(self.alarm_num, values))
+        if (debug): print ("Settings for alarm {0:d}: {1}".format(self.alarm_num, values))
         return values
 
 class RereadUsb(BaseLWComponent):
@@ -487,7 +504,7 @@ class Menu(Component):
         
     def start_component_event(self):
         # init menu pointer
-        print ("Menu Start received")
+        if (debug): print ("Menu Start received")
         self.current_entry = 0
         self.display_menu()
         
@@ -523,25 +540,55 @@ class Clock(Component):
 
         # set the channel to be "clock", so it receives only Events addressed to it
         self.channel = "clock"
-
         self.counter = 0
+        self.alarms = 0
         
     def start_component_event(self, *args):
-        print ("Clock start event received")
+        if (debug): print ("Clock start event received")
         self.timer = Timer(1, Event.create("update_clock_screen"), persist=True).register(self)
+
+        # retrieve, if alarms are enabled (Alarm 1 and to get OR'ed together       
+        if self.lw.settings.has_option('alarm_1_enabled'):
+            if(self.lw.settings.get("alarm_1_enabled")):
+                self.alarms = self.alarms | 1
+        else: 
+            self.alarms = self.alarms & 2
+                
+        if self.lw.settings.has_option('alarm_2_enabled'):
+            if(self.lw.settings.get("alarm_2_enabled")):
+                self.alarms = self.alarms | 2
+        else: 
+            self.alarms = self.alarms & 1
+
+        # get LCD Brightness from Setting
+        self.lcd_brightness = self.lw.settings.get("lcd_brightness")
+        self.lw.led.set_brightness(self.lw.led.LCD_BG, self.lcd_brightness)
 
     def keypress(self, key, *args):
 
-        print ("Keypress in Clock: {}".format(key))
+        if (debug): print ("Keypress in Clock: {}".format(key))
 
         if (key == self.lw.buttons.menubutton):
-            print ("MenuButton Pressed")
+            if (debug): print ("MenuButton Pressed")
             self.timer.unregister()
             self.fire(component_done_event(self, "menu"))
+        
         if (key == self.lw.buttons.upbutton):
-            pass
+            self.modify_lcd_brightness(+5)
+
+        if (key == self.lw.buttons.downbutton):
+            self.modify_lcd_brightness(-5)
+
         if (key == self.lw.buttons.okbutton):
             pass
+            
+        if (key == self.lw.buttons.alarmbutton):
+            # mark alarm as active (Rest was saved during rest of this class
+            self.alarms +=1
+            if (self.alarms > 3):
+                self.alarms = 0
+            self.write_alarms()
+            self.update_clock_screen()
     
     def update_clock_screen(self, *args):
 
@@ -553,11 +600,188 @@ class Clock(Component):
             datetimestring = time.strftime("%H %M   %d.%m.%y") 
 
         self.lw.lcd.lcd_string(datetimestring, self.lw.lcd.LCD_LINE_1)
-        self.lw.lcd.lcd_string("    wecken:08:00", self.lw.lcd.LCD_LINE_2)
+        
+        if (self.alarms == 3):
+            alarms_active_string = "A1,A2"
+        elif (self.alarms == 1):
+            alarms_active_string = "A1"
+        elif (self.alarms == 2):
+            alarms_active_string = "A2"
+        else: 
+            alarms_active_string = ""
+
+        alarm1 = Alarm.from_settings(1, self.lw.settings)
+        alarm2 = Alarm.from_settings(2, self.lw.settings)
+        
+        print ("Active Alarms:{}".format(self.alarms))
+        
+        if (debug): print ("Alarm1: {}".format(alarm1))
+        if (debug): print ("Alarm2: {}".format(alarm2))
+        
+        if (self.alarms == 3):
+            if (alarm1 < alarm2):
+                self.next_alarm = alarm1
+            else:
+                self.next_alarm = alarm2
+        
+        elif (self.alarms == 2):
+            self.next_alarm = alarm2
+        elif (self.alarms == 1):
+            self.next_alarm = alarm1
+        else:
+            self.next_alarm = None
+        
+        print ("Self next alarm = {}".format(self.next_alarm))
+        
+        if (self.next_alarm is None):
+            nextwaketime = ""
+        else:    
+            nextwaketime = self.next_alarm.get_time_as_string()
+        
+        self.lw.lcd.lcd_string("{0:<5s}{1:>11s}".format(alarms_active_string, nextwaketime), self.lw.lcd.LCD_LINE_2)
 
         self.counter += 1
 
+    def modify_lcd_brightness(self, amount):
+        
+        self.lcd_brightness += amount
+        
+        if (self.lcd_brightness > 100):
+            self.lcd_brightness = 100
 
+        if (self.lcd_brightness < 0):
+            self.lcd_brightness = 0
+
+        self.lw.led.set_brightness(self.lw.led.LCD_BG, self.lcd_brightness)
+        self.lw.settings.setsave ("lcd_brightness", self.lcd_brightness)
+        
+        if (debug): print ("changed LCD brightness to {0:d}".format(self.lcd_brightness))
+
+    ##### ALARM FUNCTIONS #####
+
+    def write_alarms(self):
+        if (self.alarms & 2):
+            # mark alarm as active (Rest was saved during rest of this class
+            self.lw.settings.setsave("alarm_2_enabled", True)
+        else:
+            self.lw.settings.setsave("alarm_2_enabled", False)
+        
+        if (self.alarms & 1):
+            # mark alarm as active (Rest was saved during rest of this class
+            self.lw.settings.setsave("alarm_1_enabled", True)
+        else:
+            self.lw.settings.setsave("alarm_1_enabled", False)
+
+    def get_next_alarm_time_as_string(self):
+        
+        # no alarm active, so no time
+        if (self.alarms == 0):
+            return ""
+        
+        if (self.alarms == 3):
+            # both alarms are active, so we need to figure, which one is closer
+            alarm1 = Alarm.retrieve_alarm_from_settings(1, self.lw.settings)
+            alarm2 = Alarm.retrieve_alarm_from_settings(2, self.lw.settings)
+            if (alarm1 < alarm2):
+                alarm_to_display = alarm1
+            else: 
+                alarm_to_display = alarm2
+        else:
+            alarm_to_display = Alarm.retrieve_alarm_from_settings(self.alarms, self.lw.settings)
+        
+
+class Alarm(object):
+
+        @classmethod
+        def from_settings(cls, alarm_num, settings):
+            
+            minutes = settings.get("alarm_{0:d}_minutes".format(alarm_num))
+            hours = settings.get("alarm_{0:d}_hours".format(alarm_num))
+            trigger = settings.get("alarm_{0:d}_trigger".format(alarm_num))
+            title = settings.get("alarm_{0:d}_title".format(alarm_num))
+            with_light = settings.get("alarm_{0:d}_with_light".format(alarm_num))
+            is_active = settings.get("alarm_{0:d}_enabled".format(alarm_num))
+            
+            return Alarm(alarm_hour= hours, alarm_minutes=minutes , alarmtrigger = trigger, with_light = with_light, title_number= title, is_active=("on" is is_active))
+    
+        def __init__(self, alarm_hour, alarm_minutes, alarmtrigger = "weekdays", with_light = True, title_number = 0, is_active = True):
+            
+            self.alarmtrigger = alarmtrigger
+            self.alarm_hour = alarm_hour
+            self.alarm_minutes = alarm_minutes
+            self.with_light = with_light
+            self.title_number = title_number
+            self.is_active = is_active
+            
+        def __lt__(self, other_alarm):
+            
+            if (other_alarm.alarm_in_minutes() > self.alarm_in_minutes()):
+                return True
+            else:
+                return False
+            
+        def __str__(self):
+            return ("Alarm: TIME: {0:02d}:{1:02d}, trigger={2:s}".format(self.alarm_hour, self.alarm_minutes, self.alarmtrigger))
+            
+        def alarmtime(self):
+            now = datetime.datetime.now()
+            alarm_time = datetime.datetime(now.year, now.month, now.day, self.alarm_hour, self.alarm_minutes)
+
+            
+            if (now > alarm_time):
+                alarm_time = alarm_time + datetime.timedelta(days=1)
+
+            
+            alarm_time = self.add_days_based_on_trigger(alarm_time)
+
+            print ("Alarm_time in alarmtime func: {}".format(alarm_time))
+
+            return alarm_time
+
+        def get_time_as_string(self):
+            now = datetime.datetime.now()
+            
+            print ("alarm in time as string {}".format(self))
+            print ("now: {}".format(now))
+            print ("alartime: {}".format(self.alarmtime()))
+            delta = self.alarmtime() - now
+            
+            print ("Delta: {}".format(delta.days))  
+            
+            # locale.setlocale(locale.LC_ALL, 'de.DE')
+            
+            if (delta.days > 0):
+                return ("{0:s} {1:02d}:{2:02d}".format(self.alarmtime().strftime('%a'),self.alarm_hour, self.alarm_minutes))
+            else:
+                return ("{0:02d}:{1:02d}".format(self.alarm_hour, self.alarm_minutes))
+            
+            
+        def alarm_in_minutes(self):
+
+            now = datetime.datetime.now()
+            alarmtime = self.alarmtime()
+            
+            delta = (alarmtime-now)
+            return int(delta.total_seconds()/60)
+                                    
+        def add_days_based_on_trigger(self, alarmtime):
+
+            
+            if ("alldays" == self.alarmtrigger):
+                # no need to add a day on daily alarms
+                return alarmtime
+            
+            if ("weekdays" == self.alarmtrigger):
+                while (alarmtime.weekday() > 4):
+                    alarmtime = alarmtime + datetime.timedelta(days=1)
+                return alarmtime
+            
+            if ("weekend" == self.alarmtrigger):
+                print ("in weekend trigger")
+                while (alarmtime.weekday() < 5):
+                    alarmtime = alarmtime + datetime.timedelta(days=1)
+                return alarmtime    
+        
 class LichtWecker(Component):
     """ Main class of the LichtWecker, it creates and holds all helper classes
      
@@ -584,7 +808,7 @@ class LichtWecker(Component):
                     )
         
         # Lichtwecker can be booting and idling at the moment
-        print ("Initializer of Lichtwecker")
+        if (debug): print ("Initializer of Lichtwecker")
 
         # Initialize Helper Classes
         self.config = Config() # config must be first
@@ -612,13 +836,16 @@ class LichtWecker(Component):
         #self.current_state = "boot"
         self.current_state = "clock"
         self.fire(start_component_event(), self.current_state)
+        if (debug): 
+            self.titles = self.audio.get_titles_info()
+            print (self.titles)
         
     def component_done_event(self, sender, *args):
 
         if (len(args) > 0 ):
-            print ("Component Done: {0:s} Parameter: {1}".format(sender.channel, args[0]))  
+            if (debug): print ("Component Done: {0:s} Parameter: {1}".format(sender.channel, args[0]))  
         else:
-            print ("Component Done: {}".format(sender.channel))
+            if (debug): print ("Component Done: {}".format(sender.channel))
 
         if (sender.channel == "boot"):
             self.start_state("clock")
@@ -650,18 +877,18 @@ class LichtWecker(Component):
 
     # called from Button Class. when a button was pressed 
     def buttonpress_received(self, key):
-        print ("Button pressed, will send key: {0:d} to : {1:s}".format(key, self.current_state))
+        if (debug): print ("Button pressed, will send key: {0:d} to : {1:s}".format(key, self.current_state))
         self.fire(keypress(key), self.current_state)
         
     def registered(self, *args):
-        print ("Registered aus Lichtwecker. Parent: {0:s} -> Child: {1:s}".format(args[1].name, args[0].name))
+        if (debug): print ("Registered aus Lichtwecker. Parent: {0:s} -> Child: {1:s}".format(args[1].name, args[0].name))
 
     def unregistered(self, *args):
-        print ("Unregistered aus Lichtwecker. Parent: {0:s} -> Child: {1:s}".format(args[1].name, args[0].name))
+        if (debug): print ("Unregistered aus Lichtwecker. Parent: {0:s} -> Child: {1:s}".format(args[1].name, args[0].name))
 
     def start_state(self, newstate, *args):
         
-        print ("Starting new state: {}".format(newstate))
+        if (debug): print ("Starting new state: {}".format(newstate))
         self.current_state = newstate
         if (len(args) > 0):
             self.fire(start_component_event(args[0]), self.current_state)
@@ -671,9 +898,26 @@ class LichtWecker(Component):
         
     def initialize_settings(self):
         
-        print ("This is Lichtweckers very first start, so we need to populate the settings file")
+        if (debug): print ("This is Lichtweckers very first start, so we need to populate the settings file")
         self.settings.setsave ("firstrun", False)
         self.settings.setsave ("snooze", 5)
+        
+        self.settings.setsave ("lcd_brightness", 80)
+        
+        self.settings.setsave ("alarm_1_enabled",False)
+        self.settings.setsave ("alarm_1_title",0)
+        self.settings.setsave ("alarm_1_minutes",0)
+        self.settings.setsave ("alarm_1_hours",0)
+        self.settings.setsave ("alarm_1_trigger", "weekend")
+        self.settings.setsave ("alarm_1_with_light", "on")
+        
+        self.settings.setsave ("alarm_2_enabled",False)
+        self.settings.setsave ("alarm_2_title",0)
+        self.settings.setsave ("alarm_2_minutes",0)
+        self.settings.setsave ("alarm_2_hours",0)
+        self.settings.setsave ("alarm_2_trigger", "weekend")
+        self.settings.setsave ("alarm_2_with_light", "on")
+        
         
         
     """ 

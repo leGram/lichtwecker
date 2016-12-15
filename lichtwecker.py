@@ -7,29 +7,24 @@
 
 Lichtwecker Project from Griesi for my beloved cousins C and S
 
-
 """
-from transitions import Machine
-
-import RPi.GPIO as GPIO
 import sys
 import time
-from easysettings import EasySettings
+import helpers # own helpers
+import locale
 
-# mpd lib
-from mpd import MPDClient
-
-# own helpers
-import helpers
-
-#sys.path.append(r'/home/pi/pysrc')
-#import pydevd
-#pydevd.settrace('192.168.178.138') # replace IP with address 
+# sys.path.append(r'/home/pi/pysrc')
+# import pydevd
+# pydevd.settrace('192.168.178.23') # replace IP with address 
                                 # of Eclipse host machine
+
+
 
 
 # Main function
 def main(argv):
+
+    locale.setlocale(locale.LC_ALL, 'de_DE') # for German weekday names
 
     lichtwecker = helpers.LichtWecker()
     lichtwecker.start()
