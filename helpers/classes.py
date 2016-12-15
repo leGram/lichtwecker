@@ -641,6 +641,13 @@ class Clock(Component):
         self.lw.lcd.lcd_string("{0:<5s}{1:>11s}".format(alarms_active_string, nextwaketime), self.lw.lcd.LCD_LINE_2)
 
         self.counter += 1
+        
+        alarm = self.next_alarm.alarm_in_minutes()
+        
+        if (alarm < 30 ):
+            self.fire(start_component_event(), "alarm_handler", self.next_alarm)
+                
+                
 
     def modify_lcd_brightness(self, amount):
         
@@ -689,6 +696,60 @@ class Clock(Component):
         else:
             alarm_to_display = Alarm.retrieve_alarm_from_settings(self.alarms, self.lw.settings)
         
+
+class AlarmHandler(BaseLWComponent):
+    
+    TIMER_INTERVAL = 10 
+    MAX_ALARM_TIME_IN_MINUTES = 60
+    
+    def __init__(self):
+        BaseLWComponent.__init__(self, lichtwecker)
+        self.active = False
+            
+    def start_component_event(self, *args):
+        
+        if (debug): print ("AlarmHandler start event received")
+
+        if (self.active):
+            # Handler already active, do not start a new one
+            if (debug): print ("AlarmHandler start event dropped (already on)")
+            return
+
+        self.alarm = args[1] # double check, if this is the alarm object
+
+        # set a timer to allow for the ramp up of lighting and starting music
+        self.timer = Timer(self.TIMER_INTERVAL, Event.create("update_alarm_handler"), persist=True).register(self)
+        
+        # get LCD Brightness from Setting
+        # self.lcd_brightness = self.lw.settings.get("lcd_brightness")
+        # self.lw.led.set_brightness(self.lw.led.LCD_BG, self.lcd_brightness)
+    
+    def keypress(self, key, *args):
+        """ Snooze Button is the OK Button. 
+            Alarm Button stops Alarm completely.
+        """
+
+        if (debug): print ("Key press in AlarmHandler: {}".format(key))
+
+        if (key == self.lw.buttons.okbutton):
+            pass
+        
+        if (key == self.lw.buttons.alarmbutton):
+            # mark alarm as active (Rest was saved during rest of this class
+            self.cleanup()
+            
+
+    def cleanup(self):
+        
+        self.timer.unregister()
+        self.active = False
+        # verhindern, das dieser Alarm noch mal kommt ... 
+        
+    def update_alarm_handler(self, *args):
+        
+        # Control 2nd line of LCD (1st line still controlled by Clock Component!
+        # control lights and music
+        pass 
 
 class Alarm(object):
 

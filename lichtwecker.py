@@ -24,7 +24,8 @@ import locale
 # Main function
 def main(argv):
 
-    locale.setlocale(locale.LC_ALL, 'de_DE') # for German weekday names
+    # for German weekday names (locale must be installed within Linux already)
+    locale.setlocale(locale.LC_ALL, 'de_DE') 
 
     lichtwecker = helpers.LichtWecker()
     lichtwecker.start()
