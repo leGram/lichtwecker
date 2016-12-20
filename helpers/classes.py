@@ -705,8 +705,12 @@ class AlarmHandler(BaseLWComponent):
     def __init__(self):
         BaseLWComponent.__init__(self, lichtwecker)
         self.active = False
-            
+        self.alarm = None # will hold the Alarm Object
+        
     def start_component_event(self, *args):
+        """ start the Alarm Handler
+            *args should contain the alarm object and the remaining time 
+        """
         
         if (debug): print ("AlarmHandler start event received")
 
@@ -716,6 +720,9 @@ class AlarmHandler(BaseLWComponent):
             return
 
         self.alarm = args[1] # double check, if this is the alarm object
+    
+        # remember the alarm time (so we still know it, when its in the past)
+        self.alarmtime = self.alarm.alarmtime()
 
         # set a timer to allow for the ramp up of lighting and starting music
         self.timer = Timer(self.TIMER_INTERVAL, Event.create("update_alarm_handler"), persist=True).register(self)
@@ -725,8 +732,9 @@ class AlarmHandler(BaseLWComponent):
         # self.lw.led.set_brightness(self.lw.led.LCD_BG, self.lcd_brightness)
     
     def keypress(self, key, *args):
-        """ Snooze Button is the OK Button. 
-            Alarm Button stops Alarm completely.
+        """ 
+        Snooze Button is the OK Button. 
+        Alarm Button stops Alarm completely.
         """
 
         if (debug): print ("Key press in AlarmHandler: {}".format(key))
