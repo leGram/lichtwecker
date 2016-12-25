@@ -132,6 +132,10 @@ class Boot(Component):
         self.show_boot_sequence()
         
     def show_boot_sequence(self):
+        
+        # Turn LCD BG Light on
+        self.lw.led.set_brightness(self.lw.led.LCD_BG, 100)
+        
         self.lw.lcd.lcd_string("Hallo {}".format(self.lw.config.value("owner")), self.lw.lcd.LCD_LINE_1)
 
         time.sleep(1) 
@@ -169,6 +173,9 @@ class Boot(Component):
         for brightness in range(100,-1, -1):
             self.lw.led.set_brightness(led, brightness)
             time.sleep(0.01)
+            
+        if (led == self.lw.led.LCD_BG):
+            self.lw.led.set_brightness(led, 100)
 
 class BaseLWComponent(Component):
     
