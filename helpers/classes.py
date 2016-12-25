@@ -655,10 +655,10 @@ class Clock(Component):
             self.timer.unregister()
             self.fire(component_done_event(self, "menu"))
         
-        if (key == self.lw.buttons.upbutton):
+        if (key == self.lw.buttons.downbutton):
             self.modify_lcd_brightness(+2)
 
-        if (key == self.lw.buttons.downbutton):
+        if (key == self.lw.buttons.upbutton):
             self.modify_lcd_brightness(-2)
 
         if (key == self.lw.buttons.okbutton):
