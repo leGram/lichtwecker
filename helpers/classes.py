@@ -474,7 +474,7 @@ class ReadWlanConfig(BaseLWComponent):
     def __init__(self, lichtwecker):
         BaseLWComponent.__init__(self, lichtwecker)
         self.wlanfilepathonstick = "/media/usbstick/wpa_supplicant.conf"
-        self.wlanfileonpi = "/etc/wpa_supplicant/wpa_supplicant.conf.test"
+        self.wlanfileonpi = "/etc/wpa_supplicant/wpa_supplicant.conf"
 
     def start_component_event(self):
 
@@ -1168,8 +1168,8 @@ class LichtWecker(Component):
     def started(self, *args):
 
         # let's start the Lichtwecker with the "boot" state
-        #self.current_state = "boot"
-        self.current_state = "clock"
+        self.current_state = "boot"
+        #self.current_state = "clock"
         self.fire(start_component_event(), self.current_state)
         if (debug): 
             self.titles = self.audio.get_titles_info()
