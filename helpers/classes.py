@@ -16,6 +16,7 @@ from signal import alarm
 
 from pathlib import Path
 import shutil
+import subprocess
 
 #### CONSTANTS ####
 
@@ -493,23 +494,24 @@ class ReadWlanConfig(BaseLWComponent):
                 self.lw.lcd.lcd_string("gefunden", self.lw.lcd.LCD_LINE_2)
                 time.sleep(1)
                 self.lw.lcd.lcd_string("kopiere...", self.lw.lcd.LCD_LINE_2)
-                if (self.copy_file()):
-                    self.lw.lcd.lcd_string("kopiert", self.lw.lcd.LCD_LINE_2)
-                    time.sleep(1)
-                    self.lw.lcd.lcd_string("reset WLAN", self.lw.lcd.LCD_LINE_2)
-                    if (self.reset_interface()):
-                        self.lw.lcd.lcd_string("Erfolg", self.lw.lcd.LCD_LINE_2)
-                        time.sleep(1)
-                        self.waitandprintip()
-                    else:
-                        self.lw.lcd.lcd_string("nicht reseted!", self.lw.lcd.LCD_LINE_2)
-                else:
-                    self.lw.lcd.lcd_string("nicht kopiert!", self.lw.lcd.LCD_LINE_2)
+                self.copy_file()
+                self.lw.lcd.lcd_string("kopiert", self.lw.lcd.LCD_LINE_2)
+                time.sleep(1)
+                self.lw.lcd.lcd_string("reset WLAN...", self.lw.lcd.LCD_LINE_2)
+                self.reset_interface()
+                self.lw.lcd.lcd_string("WLAN restarted", self.lw.lcd.LCD_LINE_2)
+                time.sleep(1)
+                self.lw.lcd.lcd_string("warte 5sec(DHCP)", self.lw.lcd.LCD_LINE_2)
+                time.sleep(5)
+                output = subprocess.check_output(["hostname","-I"])
+                self.lw.lcd.lcd_string("IP Adresse:", self.lw.lcd.LCD_LINE_1)
+                self.lw.lcd.lcd_string("{}".format(output.decode('UTF-8')), self.lw.lcd.LCD_LINE_2)
+                time.sleep(3)
+                self.lw.lcd.lcd_string("Fertig", self.lw.lcd.LCD_LINE_2)
+
             else:
                 self.lw.lcd.lcd_string("nicht gefunden!", self.lw.lcd.LCD_LINE_2)
 
-            
-            
             self.fire(component_done_event(self))
 
     def wlan_file_found(self):
@@ -521,11 +523,12 @@ class ReadWlanConfig(BaseLWComponent):
             return False
     
     def copy_file(self):
-        
-        
         shutil.copy(self.wlanfilepathonstick, self.wlanfileonpi)
 
-
+    def reset_interface(self):
+        subprocess.call(["ifdown","wlan0"], shell=True)
+        subprocess.call(["ifup","wlan0"], shell=True)
+        
     def display_entry(self):
         self.lw.lcd.lcd_string("WLAN Konfig:", self.lw.lcd.LCD_LINE_1)
         self.lw.lcd.lcd_string("OK fuer Start...", self.lw.lcd.LCD_LINE_2)
@@ -1157,6 +1160,7 @@ class LichtWecker(Component):
         self.setalarm = SetAlarm(self).register(self)
         self.rereadusb = RereadUsb(self).register(self)
         self.alarmhandler = AlarmHandler(self).register(self)
+        self.readwlanconfig = ReadWlanConfig(self).register(self)
         
 
 #### EVENT HANDLERS ####
@@ -1190,6 +1194,9 @@ class LichtWecker(Component):
                 self.start_state(target, args[1])
 
         if (sender.channel == "rereadusb"):
+            self.start_state("clock")
+
+        if (sender.channel == "readwlanconfig"):
             self.start_state("clock")
             
         if (sender.channel == "setsnooze"):
