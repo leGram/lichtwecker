@@ -7,14 +7,15 @@ import helpers
 import RPi.GPIO as GPIO
 
 from easysettings import EasySettings
-
-import datetime # für Alarm Class
+import datetime # fuer Alarm Class
 import locale
-
 import configparser
 import io
 import os
 from signal import alarm
+
+from pathlib import Path
+import shutil
 
 #### CONSTANTS ####
 
@@ -231,8 +232,8 @@ class SetAlarm(BaseLWComponent):
         self.display_entry()
         self.music = self.lw.audio.get_titles_info()
         
-    def start_timer(self):
-        self.timer = Timer(1, Event.create("blink_alarm_line"), persist=True).register(self)
+    #def start_timer(self):
+    #    self.timer = Timer(1, Event.create("blink_alarm_line"), persist=True).register(self)
 
     def display_entry(self, value_blanked = False):
         
@@ -244,6 +245,7 @@ class SetAlarm(BaseLWComponent):
             self.lw.lcd.lcd_string(current_item["possible_values"][self.values[self.items_pointer]]["displayname"], self.lw.lcd.LCD_LINE_2)
         elif(self.items_pointer == 4):
             # special case music
+            print ("Music: {}".format([self.values[self.items_pointer]]))
             music_title = self.music[self.values[self.items_pointer]]["title"]
             self.lw.lcd.lcd_string(music_title, self.lw.lcd.LCD_LINE_2) 
         elif("formatstring" in current_item):
@@ -259,7 +261,7 @@ class SetAlarm(BaseLWComponent):
         
         current_item = self.alarm_items[self.items_pointer]
         
-        if (key == self.lw.buttons.upbutton):
+        if (key == self.lw.buttons.downbutton):
             # hours and minutes mode
             if ((self.items_pointer == 0) or (self.items_pointer == 1)):
                 self.values[self.items_pointer] += 1
@@ -280,7 +282,7 @@ class SetAlarm(BaseLWComponent):
 
             self.display_entry()
 
-        if (key == self.lw.buttons.downbutton):
+        if (key == self.lw.buttons.upbutton):
             # hours and minutes mode
             if ((self.items_pointer == 0) or (self.items_pointer == 1)):
                 self.values[self.items_pointer] -= 1
@@ -439,17 +441,17 @@ class SetSnooze(BaseLWComponent):
         
         self.timer.unregister()
         
-        if (key == self.lw.buttons.upbutton):
-            self.snooze += 5
-            if (self.snooze > 90):
-                self.snooze = 90
+        if (key == self.lw.buttons.downbutton):
+            self.snooze += 1
+            if (self.snooze > 30):
+                self.snooze = 30
             self.display_entry()
             self.start_timer()
 
-        if (key == self.lw.buttons.downbutton):
-            self.snooze -= 5
-            if (self.snooze < 5):
-                self.snooze = 5
+        if (key == self.lw.buttons.upbutton):
+            self.snooze -= 1
+            if (self.snooze < 1):
+                self.snooze = 1
             self.display_entry()
             self.start_timer()
             
@@ -463,6 +465,70 @@ class SetSnooze(BaseLWComponent):
     def display_entry(self):
         self.lw.lcd.lcd_string("Schlummern:", self.lw.lcd.LCD_LINE_1)
         self.lw.lcd.lcd_string("{0:2d} min".format(self.snooze), self.lw.lcd.LCD_LINE_2)
+
+
+
+class ReadWlanConfig(BaseLWComponent):
+    
+    def __init__(self, lichtwecker):
+        BaseLWComponent.__init__(self, lichtwecker)
+        self.wlanfilepathonstick = "/media/usbstick/wpa_supplicant.conf"
+        self.wlanfileonpi = "/etc/wpa_supplicant/wpa_supplicant.conf.test"
+
+    def start_component_event(self):
+
+        self.display_entry()
+        
+    def keypress(self, key):
+        
+        if (key == self.lw.buttons.menubutton):
+            self.lw.lcd.lcd_string("ABBRUCH", self.lw.lcd.LCD_LINE_2)
+            self.fire(component_done_event(self))
+
+        if (key == self.lw.buttons.okbutton):
+
+            # read WLAN cfg file from USB and copy it to the right place
+            self.lw.lcd.lcd_string("Suche Datei...", self.lw.lcd.LCD_LINE_2)
+            if (self.wlan_file_found()):
+                self.lw.lcd.lcd_string("gefunden", self.lw.lcd.LCD_LINE_2)
+                time.sleep(1)
+                self.lw.lcd.lcd_string("kopiere...", self.lw.lcd.LCD_LINE_2)
+                if (self.copy_file()):
+                    self.lw.lcd.lcd_string("kopiert", self.lw.lcd.LCD_LINE_2)
+                    time.sleep(1)
+                    self.lw.lcd.lcd_string("reset WLAN", self.lw.lcd.LCD_LINE_2)
+                    if (self.reset_interface()):
+                        self.lw.lcd.lcd_string("Erfolg", self.lw.lcd.LCD_LINE_2)
+                        time.sleep(1)
+                        self.waitandprintip()
+                    else:
+                        self.lw.lcd.lcd_string("nicht reseted!", self.lw.lcd.LCD_LINE_2)
+                else:
+                    self.lw.lcd.lcd_string("nicht kopiert!", self.lw.lcd.LCD_LINE_2)
+            else:
+                self.lw.lcd.lcd_string("nicht gefunden!", self.lw.lcd.LCD_LINE_2)
+
+            
+            
+            self.fire(component_done_event(self))
+
+    def wlan_file_found(self):
+
+        wlanfile = Path(self.wlanfilepathonstick)
+        if wlanfile.is_file():
+            return True
+        else:
+            return False
+    
+    def copy_file(self):
+        
+        
+        shutil.copy(self.wlanfilepathonstick, self.wlanfileonpi)
+
+
+    def display_entry(self):
+        self.lw.lcd.lcd_string("WLAN Konfig:", self.lw.lcd.LCD_LINE_1)
+        self.lw.lcd.lcd_string("OK fuer Start...", self.lw.lcd.LCD_LINE_2)
 
 class Menu(Component):
     """ This Component handles the menu, which gets 
@@ -486,6 +552,10 @@ class Menu(Component):
                     {   
                         "display":      "Musik einlesen",
                         "component":    "RereadUSB",
+                    },
+                    {   
+                        "display":      "WLAN CFG laden",
+                        "component":    "ReadWlanConfig",
                     },
                     {   
                         "display":       "Menu verlassen",
@@ -542,6 +612,8 @@ class Clock(Component):
         self.channel = "clock"
         self.counter = 0
         self.alarms = 0
+        self.lightison = False
+        self.alarm_in_progress_time = None
         
     def start_component_event(self, *args):
         if (debug): print ("Clock start event received")
@@ -574,13 +646,13 @@ class Clock(Component):
             self.fire(component_done_event(self, "menu"))
         
         if (key == self.lw.buttons.upbutton):
-            self.modify_lcd_brightness(+5)
+            self.modify_lcd_brightness(+2)
 
         if (key == self.lw.buttons.downbutton):
-            self.modify_lcd_brightness(-5)
+            self.modify_lcd_brightness(-2)
 
         if (key == self.lw.buttons.okbutton):
-            pass
+            self.setlight(not self.lightison) 
             
         if (key == self.lw.buttons.alarmbutton):
             # mark alarm as active (Rest was saved during rest of this class
@@ -642,12 +714,51 @@ class Clock(Component):
 
         self.counter += 1
         
-        alarm = self.next_alarm.alarm_in_minutes()
+        alarm_mins = self.next_alarm.alarm_in_minutes()
         
-        if (alarm < 30 ):
-            self.fire(start_component_event(), "alarm_handler", self.next_alarm)
+        if (debug): print ("Alarm in minutes: {0:d}".format(alarm_mins))
+        if (debug): print ("Alarm with lights: {}".format(self.next_alarm.with_light))
+        
+        
+        
+        if (self.next_alarm.with_light == "on"):
+            if (alarm_mins <=30):
+                self.start_alarmhandler(self.next_alarm)
+        else:
+            if (alarm_mins <=0):
+                self.start_alarmhandler(self.next_alarm)
                 
-                
+        
+    def start_alarmhandler(self, alarm):
+
+        if (debug): print ("start AlarmHandler")
+        
+        if (self.alarm_in_progress_time is None):
+            # no alarm was triggered ever, so trigger this one
+            self.alarm_in_progress_time = alarm.alarmtime()
+            self.timer.unregister()
+            self.fire(component_done_event(self, "alarmhandler", alarm))
+        elif(self.alarm_in_progress_time == alarm.alarmtime()):
+            # This alarm was handled already, skip it
+            return
+        else:
+            # other alarm was triggered in past, but not this one, so trigger this one
+            self.alarm_in_progress_time = alarm.alarmtime()
+            self.timer.unregister()
+            self.fire(component_done_event(self, "alarmhandler", alarm))
+            
+    def setlight(self, to_state):
+        
+        if (to_state):
+            newVal = 100
+        else:
+            newVal = 0
+
+        self.lw.led.set_brightness(self.lw.led.RED, 0)
+        self.lw.led.set_brightness(self.lw.led.GREEN, 0)
+        self.lw.led.set_brightness(self.lw.led.WARM_WHITE, newVal)
+        
+        self.lightison = to_state
 
     def modify_lcd_brightness(self, amount):
         
@@ -699,10 +810,47 @@ class Clock(Component):
 
 class AlarmHandler(BaseLWComponent):
     
-    TIMER_INTERVAL = 10 
+    # re-check interval in seconds (once per minute)
+    TIMER_INTERVAL = 2  
+    # 
     MAX_ALARM_TIME_IN_MINUTES = 60
+
+    DISPLAY_REFRESH_INTERVAL = 30 # display refresh rate in seconds
     
-    def __init__(self):
+    light_over_time = [ 
+            { "red": 1,  "green": 0, "white": 0 },  # minute 1
+            { "red": 3,  "green": 0, "white": 0 },  # minute 2
+            { "red": 5,  "green": 0, "white": 0 },  # minute ...
+            { "red": 10,  "green": 1, "white": 0 },
+            { "red": 15,  "green": 2, "white": 0 },
+            { "red": 20,  "green": 4, "white": 0 },
+            { "red": 25,  "green": 7, "white": 0 },
+            { "red": 30,  "green": 10, "white": 0 },
+            { "red": 40,  "green": 14, "white": 0 },
+            { "red": 50,  "green": 18, "white": 0 }, # minute 10
+            { "red": 50,  "green": 23, "white": 0 },
+            { "red": 60,  "green": 30, "white": 0 },
+            { "red": 60,  "green": 40, "white": 0 },
+            { "red": 70,  "green": 80, "white": 0 },
+            { "red": 70,  "green": 80, "white": 1 },
+            { "red": 70,  "green": 80, "white": 2 },
+            { "red": 70,  "green": 80, "white": 3 },
+            { "red": 70,  "green": 80, "white": 5 },
+            { "red": 70,  "green": 80, "white": 7 },
+            { "red": 70,  "green": 80, "white": 10 }, # minute 20
+            { "red": 70,  "green": 80, "white": 14 },
+            { "red": 70,  "green": 80, "white": 18 },
+            { "red": 70,  "green": 80, "white": 24 },
+            { "red": 70,  "green": 80, "white": 30 },
+            { "red": 70,  "green": 80, "white": 38 },
+            { "red": 70,  "green": 80, "white": 48 },
+            { "red": 70,  "green": 80, "white": 60 },
+            { "red": 70,  "green": 80, "white": 74 },
+            { "red": 70,  "green": 80, "white": 86 },
+            { "red": 70,  "green": 80, "white": 100 }, # minute 30
+        ]
+    
+    def __init__(self, lichtwecker):
         BaseLWComponent.__init__(self, lichtwecker)
         self.active = False
         self.alarm = None # will hold the Alarm Object
@@ -719,18 +867,29 @@ class AlarmHandler(BaseLWComponent):
             if (debug): print ("AlarmHandler start event dropped (already on)")
             return
 
-        self.alarm = args[1] # double check, if this is the alarm object
+        self.alarm = args[0] # double check, if this is the alarm object
+    
+        if (debug): print ("received alarm at start: {}".format(self.alarm))
     
         # remember the alarm time (so we still know it, when its in the past)
         self.alarmtime = self.alarm.alarmtime()
+        
+        # Reset snooze
+        self.snoozeuntil = None
+        
+        # Reset audio flag
+        self.audioplays = False
+
+        if (debug): self.debug_in_minutes = None
 
         # set a timer to allow for the ramp up of lighting and starting music
-        self.timer = Timer(self.TIMER_INTERVAL, Event.create("update_alarm_handler"), persist=True).register(self)
+        self.alarmtimer = Timer(self.TIMER_INTERVAL, Event.create("update_alarm_handler"), persist=True).register(self)
+        self.displaytimer = Timer(self.DISPLAY_REFRESH_INTERVAL, Event.create("update_display"), persist=True).register(self)
         
-        # get LCD Brightness from Setting
-        # self.lcd_brightness = self.lw.settings.get("lcd_brightness")
-        # self.lw.led.set_brightness(self.lw.led.LCD_BG, self.lcd_brightness)
-    
+        # call handler once on start manually
+        self.update_alarm_handler()
+        self.update_display()
+            
     def keypress(self, key, *args):
         """ 
         Snooze Button is the OK Button. 
@@ -740,24 +899,125 @@ class AlarmHandler(BaseLWComponent):
         if (debug): print ("Key press in AlarmHandler: {}".format(key))
 
         if (key == self.lw.buttons.okbutton):
-            pass
+            self.snooze()
         
         if (key == self.lw.buttons.alarmbutton):
             # mark alarm as active (Rest was saved during rest of this class
-            self.cleanup()
+            self.cleanupandend()
             
+    def snooze(self):
 
-    def cleanup(self):
+        # stop music
+        self.stopaudio()
+
+        # make it dark
+        self.lightsoff()
+
+        # Add snooze interval to current time and store it 
+        self.snoozeuntil = datetime.datetime.now() + datetime.timedelta(minutes=self.lw.settings.get("snooze"))
+
+    def cleanupandend(self):
         
-        self.timer.unregister()
+        # Dereg Timers
+        self.alarmtimer.unregister()
+        self.displaytimer.unregister()
+
+        # stop playing audio
+        self.stopaudio()
+
+        # light off
+        self.lightsoff()
+
+        # reset instance vars
         self.active = False
-        # verhindern, das dieser Alarm noch mal kommt ... 
         
+        # back to clock
+        self.fire(component_done_event(self))
+                
+    def update_display(self, *args):
+
+        # Print time (no blinking of the colon this time)
+        datetimestring = time.strftime("%H:%M   %d.%m.%y") 
+        self.lw.lcd.lcd_string(datetimestring, self.lw.lcd.LCD_LINE_1)
+        
+        alarm_in_mins = self.alarm_in_minutes()
+        
+        if (alarm_in_mins <= 0):
+            secondline_text = "ALARM, steh auf!"
+        else:
+            secondline_text = "ALARM in {0:d} min".format(alarm_in_mins)
+            
+        self.lw.lcd.lcd_string(secondline_text, self.lw.lcd.LCD_LINE_2)
+   
     def update_alarm_handler(self, *args):
+        """ 
+        Controls light and Music
+        """
+        alarm_in_minutes = self.alarm_in_minutes()
         
-        # Control 2nd line of LCD (1st line still controlled by Clock Component!
-        # control lights and music
-        pass 
+        #TODO: Comment out section for production
+        # Fast forward alarm to debug, comment out for production mode
+        #if (self.debug_in_minutes == None):
+        #    self.debug_in_minutes = 30
+        #alarm_in_minutes = self.debug_in_minutes
+        
+        
+        if (alarm_in_minutes <= 0):
+
+            if (self.snoozeuntil != None):
+                # see if snooze time is over
+                snoozetimedelta = self.snoozeuntil - datetime.datetime.now()
+                if (snoozetimedelta.total_seconds() < 0):
+                    # snooze is over
+                    self.snoozeuntil = None
+
+            # Alarm should ring, if not snoozed
+            if (self.snoozeuntil == None):
+                # It's time to make Alarm!
+                
+                # Full LIGHTING
+                self.lw.led.set_brightness(self.lw.led.RED, 0)
+                self.lw.led.set_brightness(self.lw.led.GREEN, 0)
+                self.lw.led.set_brightness(self.lw.led.WARM_WHITE, 100)
+                
+                # Play audio (if not playing already)
+                if (self.audioplays == False):
+                    self.startaudio()
+                        
+        elif (alarm_in_minutes > 0 & alarm_in_minutes < 31):
+            
+            # Light waking should happen
+            
+            self.lw.led.set_brightness(self.lw.led.RED, self.light_over_time[30-alarm_in_minutes]["red"])
+            self.lw.led.set_brightness(self.lw.led.GREEN, self.light_over_time[30-alarm_in_minutes]["green"])
+            self.lw.led.set_brightness(self.lw.led.WARM_WHITE, self.light_over_time[30-alarm_in_minutes]["white"])
+            
+        else:
+            # just in case (should not happen)
+            self.lightsoff()
+            
+        
+    def startaudio(self):
+        music = self.lw.audio.get_titles_info()
+        self.lw.audio.playid(music[self.alarm.title_number]["id"])
+        self.audioplays = True
+            
+    def stopaudio(self):
+        self.lw.audio.stop() 
+        self.audioplays = False
+           
+    def lightsoff(self):
+        self.lw.led.set_brightness(self.lw.led.RED, 0)
+        self.lw.led.set_brightness(self.lw.led.GREEN, 0)
+        self.lw.led.set_brightness(self.lw.led.WARM_WHITE, 0)
+    
+    def alarm_in_minutes(self):
+
+        # calc time until alarm in minutes
+        alarmdelta = self.alarmtime - datetime.datetime.now()
+        alarm_in_mins = int(alarmdelta.total_seconds()/60)
+
+        return alarm_in_mins
 
 class Alarm(object):
 
@@ -896,6 +1156,8 @@ class LichtWecker(Component):
         self.setsnooze = SetSnooze(self).register(self)
         self.setalarm = SetAlarm(self).register(self)
         self.rereadusb = RereadUsb(self).register(self)
+        self.alarmhandler = AlarmHandler(self).register(self)
+        
 
 #### EVENT HANDLERS ####
 
@@ -920,7 +1182,12 @@ class LichtWecker(Component):
             self.start_state("clock")
 
         if (sender.channel == "clock"):
-            self.start_state(args[0])
+            target = args[0]
+            print ("sender channel = clock, target = {}".format(target))
+            if (target == "menu"):
+                self.start_state(target)
+            if (target =="alarmhandler"):
+                self.start_state(target, args[1])
 
         if (sender.channel == "rereadusb"):
             self.start_state("clock")
@@ -929,6 +1196,9 @@ class LichtWecker(Component):
             self.start_state("clock")
 
         if (sender.channel == "setalarm"):
+            self.start_state("clock")
+            
+        if (sender.channel == "alarmhandler"):
             self.start_state("clock")
 
         if (sender.channel == "menu"):
@@ -960,7 +1230,7 @@ class LichtWecker(Component):
         if (debug): print ("Starting new state: {}".format(newstate))
         self.current_state = newstate
         if (len(args) > 0):
-            self.fire(start_component_event(args[0]), self.current_state)
+            self.fire(start_component_event(*args), self.current_state)
         else:
             self.fire(start_component_event(), self.current_state)
 

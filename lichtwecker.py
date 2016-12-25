@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/home/pi/lichtwecker/venv/bin/python
 # -*- coding: utf-8 -*-
 
 """

@@ -17,6 +17,7 @@ class Audio(object):
         self._mpc.setvol(volume)
 
     def playid(self, songid):
+        print ("PlayID: {}".format(songid))
         self._reconnect()
         self._mpc.setvol(0)
         self._mpc.playid(songid)
