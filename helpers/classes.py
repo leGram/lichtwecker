@@ -510,7 +510,10 @@ class ReadWlanConfig(BaseLWComponent):
                 time.sleep(1)
                 self.lw.lcd.lcd_string("warte 5sec(DHCP)", self.lw.lcd.LCD_LINE_2)
                 time.sleep(5)
-                output = subprocess.check_output(["hostname","-I"])
+                try:
+                    output = subprocess.check_output(["hostname","-I"])
+                except:
+                    output = "ip query failed"
                 self.lw.lcd.lcd_string("IP Adresse:", self.lw.lcd.LCD_LINE_1)
                 self.lw.lcd.lcd_string("{}".format(output.decode('UTF-8')), self.lw.lcd.LCD_LINE_2)
                 time.sleep(3)
@@ -533,8 +536,8 @@ class ReadWlanConfig(BaseLWComponent):
         shutil.copy(self.wlanfilepathonstick, self.wlanfileonpi)
 
     def reset_interface(self):
-        subprocess.call(["ifdown","wlan0"], shell=True)
-        subprocess.call(["ifup","wlan0"], shell=True)
+        subprocess.call(["ifdown","wlan0"])
+        subprocess.call(["ifup","wlan0"])
         
     def display_entry(self):
         self.lw.lcd.lcd_string("WLAN Konfig:", self.lw.lcd.LCD_LINE_1)

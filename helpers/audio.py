@@ -1,5 +1,6 @@
 from mpd import MPDClient, MPDError
 import time
+import RPi.GPIO as GPIO
 
 class Audio(object):
     
@@ -11,6 +12,10 @@ class Audio(object):
         self._reconnect()
         self.volume = 95
         
+        # fix to remove the crackling noises in the loudspeaker
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(27, GPIO.OUT, initial=GPIO.HIGH)
+        
     def set_vol(self, volume):
         self.volume = volume
         self._reconnect()
@@ -19,23 +24,33 @@ class Audio(object):
     def playid(self, songid):
         print ("PlayID: {}".format(songid))
         self._reconnect()
-        self._mpc.setvol(0)
+        
+        # enable amplifier 
+        GPIO.output(27, GPIO.LOW)
+        
         self._mpc.playid(songid)
-        time.sleep(0.1)
         self._mpc.setvol(self.volume)
+        
         
     def playsingle(self, songfile):
         self._reconnect()
         self._mpc.clear()
         self._mpc.add(songfile)
-        self._mpc.setvol(0)
+
+        # enable amplifier 
+        GPIO.output(27, GPIO.LOW)
+
         self._mpc.play()
-        time.sleep(0.1)
         self._mpc.setvol(self.volume)
+
         
     def stop(self):
         self._reconnect()
         self._mpc.stop()
+
+        # disable amplifier 
+        GPIO.output(27, GPIO.HIGH)
+
         
     def refresh_music_dir(self):
         try:
